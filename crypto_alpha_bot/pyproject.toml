@@ -1,32 +1,37 @@
-pyproject_toml_example = """
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "crypto_alpha_bot"
 version = "0.1.0"
 description = "Sistema modular para análise, scoring e alertas de oportunidades em cripto"
 readme = "README.md"
 requires-python = ">=3.11"
-authors = [{name = "Seu Nome", email = "email@example.com"}]
-license = {text = "MIT"}
+license = "MIT"
+authors = [{ name = "Seu Nome", email = "seu_email@example.com" }]
+
 dependencies = [
   "aiohttp>=3.9.0",
   "pandas>=2.1.0",
   "numpy>=1.26.0",
   "PyYAML>=6.0",
-  "python-dateutil>=2.8.2"
+  "python-dateutil>=2.8.2",
+  "pyarrow>=21.0.0",
 ]
 
 [project.optional-dependencies]
-ml = ["lightgbm", "scikit-learn"]
-monitoring = ["prometheus-client"]
+dev = [
+  "pytest>=7.4.0",
+  "black>=23.9.0",
+  "ruff>=0.1.0",
+  "mypy>=1.6.0",
+  "types-PyYAML"
+]
 
-[tool.uv]
-# scripts podem ser executados com: uv run <nome>
-
-[tool.uv.scripts]
-start = "python main.py"
-format = "black ."
-lint = "ruff check ."
-test = "pytest -q"
+[tool.setuptools]
+package-dir = {"" = "src"}
+packages = ["core"]
 
 [tool.black]
 line-length = 100
@@ -39,4 +44,8 @@ select = ["E", "F", "I", "B"]
 [tool.pytest.ini_options]
 pythonpath = ["."]
 addopts = "-q"
-"""
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+strict_optional = true

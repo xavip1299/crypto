@@ -1,0 +1,22 @@
+Metadata-Version: 2.4
+Name: crypto_alpha_bot
+Version: 0.1.0
+Summary: Sistema modular para análise, scoring e alertas de oportunidades em cripto
+Author-email: Seu Nome <seu_email@example.com>
+License-Expression: MIT
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: aiohttp>=3.9.0
+Requires-Dist: pandas>=2.1.0
+Requires-Dist: numpy>=1.26.0
+Requires-Dist: PyYAML>=6.0
+Requires-Dist: python-dateutil>=2.8.2
+Requires-Dist: pyarrow>=21.0.0
+Provides-Extra: dev
+Requires-Dist: pytest>=7.4.0; extra == "dev"
+Requires-Dist: black>=23.9.0; extra == "dev"
+Requires-Dist: ruff>=0.1.0; extra == "dev"
+Requires-Dist: mypy>=1.6.0; extra == "dev"
+Requires-Dist: types-PyYAML; extra == "dev"
+
+"# Crypto Alpha Bot" 
