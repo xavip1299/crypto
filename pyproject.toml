@@ -1,24 +1,42 @@
+pyproject_toml_example = """
 [project]
-name = "cripto"
+name = "crypto_alpha_bot"
 version = "0.1.0"
-description = "Add your description here"
+description = "Sistema modular para análise, scoring e alertas de oportunidades em cripto"
 readme = "README.md"
 requires-python = ">=3.11"
+authors = [{name = "Seu Nome", email = "email@example.com"}]
+license = {text = "MIT"}
 dependencies = [
-    "aiohttp>=3.12.14",
-    "numpy>=2.3.1",
-    "pandas>=2.3.1",
-    "pyyaml>=6.0.2",
+  "aiohttp>=3.9.0",
+  "pandas>=2.1.0",
+  "numpy>=1.26.0",
+  "PyYAML>=6.0",
+  "python-dateutil>=2.8.2"
 ]
 
-[dependency-groups]
-dev = [
-    "black>=25.1.0",
-    "mypy>=1.17.0",
-    "pytest>=8.4.1",
-    "ruff>=0.12.4",
-]
+[project.optional-dependencies]
+ml = ["lightgbm", "scikit-learn"]
+monitoring = ["prometheus-client"]
+
+[tool.uv]
+# scripts podem ser executados com: uv run <nome>
+
+[tool.uv.scripts]
+start = "python main.py"
+format = "black ."
+lint = "ruff check ."
+test = "pytest -q"
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
 
 [tool.ruff]
 line-length = 100
-select = ["E","F","I","B"]
+select = ["E", "F", "I", "B"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+addopts = "-q"
+"""
