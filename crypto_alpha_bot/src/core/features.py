@@ -67,3 +67,13 @@ def build_feature_set(df: pd.DataFrame) -> pd.DataFrame:
     df = add_momentum_quality(df)
     df = integrate_derivatives(df)
     return df
+
+def recompute_derivative_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Recalcula funding_z e oi_delta_pct após merge histórico.
+    """
+    if "funding" in df.columns:
+        df["funding_z"] = zscore(df["funding"], 60)
+    if "open_interest_usd" in df.columns:
+        df["oi_delta_pct"] = df["open_interest_usd"].pct_change()
+    return df

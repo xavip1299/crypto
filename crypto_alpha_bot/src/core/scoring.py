@@ -10,6 +10,10 @@ class ScoreBreakdown(NamedTuple):
     extras: Dict[str, float]
 
 class ScoringEngine:
+    """
+    Combina componentes de momentum, breakout e contrarian.
+    Ajustes por regime e penalização por overextensão.
+    """
     def __init__(self, weights: Dict[str, float]):
         self.w = weights
 

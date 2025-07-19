@@ -31,6 +31,25 @@ storage:
 logging:
   level: INFO
 
-telegram:
-  bot_token: "7694317810:AAFeUEksuLnfHs1dMQV9KDdHcNHbdKgEMfg"
-  chat_id: 1064066035
+bootstrap:
+  enabled: false          # Se true roda bootstrap ao iniciar (ou usar flag CLI)
+  target_hours: 2000      # Ou use target_candles se preferir
+  step_limit: 1000        # Quantidade de candles por requisição (<= 1000 para Binance)
+
+reports:
+  path: data/reports
+  snapshot_file: snapshots.parquet
+
+derivatives_history:
+  enabled: true
+  funding:
+    lookback_days: 400        # quanto buscar se não houver cache
+    step_hours: 200           # janela (horas) por fetch funding (traduz em start/end)
+  oi:
+    lookback_days: 120
+    step_hours: 48
+  paths:
+    base: data/derivatives
+    funding_dir: funding
+    oi_dir: oi
+  recompute_features: true

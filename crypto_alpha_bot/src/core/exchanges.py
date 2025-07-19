@@ -10,12 +10,6 @@ BINANCE_PERP_BASE = "https://fapi.binance.com"
 class BinancePerpClient:
     """
     Cliente para endpoints principais de perpetual futures (funding rate + open interest).
-
-    - Funding tempo real: /fapi/v1/premiumIndex
-    - Histórico funding: /fapi/v1/fundingRate (não usado aqui)
-    - Open Interest histórico: /futures/data/openInterestHist
-
-    Atenção a rate limits: evite loops com muitos símbolos em intervalos curtos.
     """
 
     def __init__(self, session: aiohttp.ClientSession, symbols: List[str]):
@@ -81,11 +75,6 @@ class BinancePerpClient:
 async def load_derivatives(
     symbols: List[str], period: str = "1h", limit: int = 72
 ) -> Tuple[List[Dict[str, Any]], Dict[str, List[Dict[str, Any]]]]:
-    """
-    Retorna:
-      funding_list: lista de dicts de funding tempo real
-      oi_map: {symbol: [hist_oi_dicts]}
-    """
     async with aiohttp.ClientSession() as session:
         client = BinancePerpClient(session, symbols)
         funding = await client.batch_realtime_funding()

@@ -7,3 +7,4 @@ data/
 logs/
 models/
 reports/
+config/secrets.yaml
