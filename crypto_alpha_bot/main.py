@@ -19,6 +19,19 @@ from core.alerts import TelegramAlerter
 from core.historical import paginate_klines, interval_to_ms
 from core.ranking import apply_ranking
 from core.integrate import merge_derivatives_into_price
+from core.config_loader import load_settings
+
+def get_universe():
+    settings = load_settings()
+    spot = settings.get("universe", {}).get("spot", [])
+    perps = settings.get("universe", {}).get("perps", [])
+    if not spot:
+        raise ValueError("Lista spot vazia em settings.yaml")
+    return settings, spot, perps
+
+settings, spot_symbols, perp_symbols = get_universe()
+print("UNIVERSO SPOT:", spot_symbols)
+print("UNIVERSO PERPS:", perp_symbols)
 
 # ===================================================== #
 #                     CONFIG HELPERS                    #
@@ -388,7 +401,6 @@ async def main():
             logging.warning("Falha ao enviar alerta Telegram.")
     else:
         logging.info("Telegram não configurado (pulei envio).")
-
 
 if __name__ == "__main__":
     asyncio.run(main())
