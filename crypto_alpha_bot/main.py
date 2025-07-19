@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from logging.handlers import RotatingFileHandler
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -7,7 +8,7 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
-# Core (internos)
+# Core modules
 from core.datasource import fetch_multiple
 from core.features import build_feature_set, recompute_derivative_features
 from core.regimes import RegimeClassifier
@@ -16,9 +17,12 @@ from core.storage import ParquetStore
 from core.exchanges import load_derivatives
 from core.alerts import TelegramAlerter
 from core.historical import paginate_klines, interval_to_ms
+from core.ranking import apply_ranking
+from core.integrate import merge_derivatives_into_price
 
-
-# ===================== Config Helpers ===================== #
+# ===================================================== #
+#                     CONFIG HELPERS                    #
+# ===================================================== #
 
 def load_yaml(path: str) -> dict:
     p = Path(path)
@@ -27,10 +31,8 @@ def load_yaml(path: str) -> dict:
     with p.open("r", encoding="utf-8") as fh:
         return yaml.safe_load(fh) or {}
 
-
 def load_settings() -> dict:
     return load_yaml("config/settings.yaml")
-
 
 def load_secrets() -> dict:
     try:
@@ -38,20 +40,37 @@ def load_secrets() -> dict:
     except FileNotFoundError:
         return {}
 
+# ===================================================== #
+#                       LOGGING                         #
+# ===================================================== #
 
 def setup_logging(level: str = "INFO"):
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
+    log_dir = Path("logs")
+    log_dir.mkdir(exist_ok=True)
+    log_file = log_dir / "app.log"
 
+    fmt = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+    logger = logging.getLogger()
+    logger.setLevel(getattr(logging, level.upper(), logging.INFO))
+    logger.handlers.clear()
 
-# ===================== Derivatives Enrichment (live) ===================== #
+    stream_h = logging.StreamHandler()
+    stream_h.setFormatter(logging.Formatter(fmt))
+
+    rot_h = RotatingFileHandler(log_file, maxBytes=5_000_000, backupCount=5, encoding="utf-8")
+    rot_h.setFormatter(logging.Formatter(fmt))
+
+    logger.addHandler(stream_h)
+    logger.addHandler(rot_h)
+
+# ===================================================== #
+#          LIVE DERIVATIVES ENRICHMENT (SIMPLE)         #
+# ===================================================== #
 
 async def enrich_with_derivatives(df: pd.DataFrame, funding_item, oi_hist):
     """
-    Adiciona funding (apenas última linha) e open_interest_usd via alinhamento simplificado.
-    (Para histórico completo usamos merge_asof mais robusto em integrate.py)
+    Live: adiciona funding somente à última linha e open_interest_usd com alinhamento simples.
+    Histórico completo é tratado separadamente via integrate + merge_asof.
     """
     if df.empty:
         return df
@@ -72,8 +91,9 @@ async def enrich_with_derivatives(df: pd.DataFrame, funding_item, oi_hist):
             df["open_interest_usd"] = pd.to_numeric(df["open_interest_usd"])
     return df
 
-
-# ===================== Symbol Processing (live incremental) ===================== #
+# ===================================================== #
+#                LIVE SYMBOL PROCESSING                 #
+# ===================================================== #
 
 async def process_symbol(symbol: str,
                          interval: str,
@@ -82,7 +102,7 @@ async def process_symbol(symbol: str,
                          funding_list,
                          oi_map) -> pd.DataFrame:
     """
-    Busca OHLCV recente, persiste incrementalmente e enriquece features + derivativos (live).
+    Busca OHLCV recente, persiste incrementalmente, enriquece com derivatives (live) e gera features.
     """
     raw_map = await fetch_multiple([symbol], interval, limit)
     rows = raw_map.get(symbol, [])
@@ -97,13 +117,11 @@ async def process_symbol(symbol: str,
     df = build_feature_set(df)
     return df
 
-
-# ===================== Bootstrap Historical ===================== #
+# ===================================================== #
+#                BOOTSTRAP HISTORICAL DATA              #
+# ===================================================== #
 
 async def bootstrap_history(symbols, interval, target_hours, step_limit, storage_path):
-    """
-    Faz backfill histórico (retrocessão) por símbolo usando paginação.
-    """
     logging.info("Bootstrap histórico: target_hours=%s interval=%s step=%s",
                  target_hours, interval, step_limit)
     tf_ms = interval_to_ms(interval)
@@ -121,24 +139,16 @@ async def bootstrap_history(symbols, interval, target_hours, step_limit, storage
         store.append_and_dedupe(df_boot)
         logging.info("Bootstrap %s concluído (%d candles).", sym, len(df_boot))
 
-
-# ===================== Histórico Derivativos (Funding & OI) ===================== #
+# ===================================================== #
+#           FULL DERIVATIVES HISTORY (FUND/OI)          #
+# ===================================================== #
 
 async def build_full_derivatives(perp_symbols, deriv_cfg, force_rebuild: bool):
-    """
-    Orquestra coleta/persistência de funding & OI históricos via derivatives_history.
-    Retorna dict com dataframes por símbolo:
-      {
-        "funding": {SYM: df},
-        "oi": {SYM: df}
-      }
-    """
     if not perp_symbols:
         return None
     from core.derivatives_history import build_derivatives_history
     logging.info("Construindo histórico de derivados (force=%s)...", force_rebuild)
     return await build_derivatives_history(perp_symbols, deriv_cfg, force_rebuild=force_rebuild)
-
 
 def recompute_full_price_with_derivatives(spot_symbols,
                                           storage_path,
@@ -147,14 +157,8 @@ def recompute_full_price_with_derivatives(spot_symbols,
                                           regime_cfg,
                                           scoring_cfg,
                                           deriv_cfg):
-    """
-    Re-merge funding & OI históricos em cada série de preços, recalcula features derivativas
-    e (se solicitado) gera mapa de DataFrames para posterior backtest.
-    """
     if not deriv_hist:
         return {}
-
-    from core.integrate import merge_derivatives_into_price
 
     extended_price_map = {}
     for sym in spot_symbols:
@@ -165,18 +169,14 @@ def recompute_full_price_with_derivatives(spot_symbols,
         funding_df = deriv_hist["funding"].get(sym)
         oi_df = deriv_hist["oi"].get(sym)
         merged = merge_derivatives_into_price(base_df, funding_df, oi_df)
-        merged = build_feature_set(merged)            # inclui ret, etc.
-        merged = recompute_derivative_features(merged)  # funding_z, oi_delta_pct
-        # Persist back
+        merged = build_feature_set(merged)
+        merged = recompute_derivative_features(merged)
         try:
             merged.to_parquet(store.parquet_path, index=False)
         except Exception:
             merged.to_csv(store.csv_path, index=False)
         extended_price_map[sym] = merged
     return extended_price_map
-
-
-# ===================== Historical Signals Backtest ===================== #
 
 def build_historical_signals(extended_price_map, regime_cfg, scoring_cfg, output_path: Path):
     from core.backtest_signals import generate_historical_signals
@@ -187,12 +187,22 @@ def build_historical_signals(extended_price_map, regime_cfg, scoring_cfg, output
         expansion_ratio=regime_cfg["expansion_ratio"],
     )
     scorer_bt = ScoringEngine(scoring_cfg)
-    sig_df = generate_historical_signals(extended_price_map, clf_bt, scorer_bt)
+    sig_df = generate_historical_signals(
+        extended_price_map,
+        clf_bt,
+        scorer_bt,
+        min_history=50,
+        apply_cross_sectional_rank=False
+    )
+    if sig_df.empty:
+        logging.warning("Nenhum sinal histórico gerado.")
+        return
     sig_df.to_parquet(output_path, engine="pyarrow", compression="snappy", index=False)
     logging.info("Sinais históricos gerados (%d linhas) -> %s", len(sig_df), output_path)
 
-
-# ===================== Main Flow ===================== #
+# ===================================================== #
+#                       MAIN FLOW                       #
+# ===================================================== #
 
 async def main():
     settings = load_settings()
@@ -218,7 +228,7 @@ async def main():
     deriv_cfg = settings.get("derivatives_history", {})
     deriv_enabled = deriv_cfg.get("enabled", False)
 
-    # (1) Bootstrap histórico de preços (se solicitado)
+    # (1) Bootstrap histórico (preços)
     if bootstrap_flag:
         await bootstrap_history(
             spot_symbols,
@@ -228,12 +238,12 @@ async def main():
             storage_path,
         )
 
-    # (2) Histórico de derivados (funding & OI)
+    # (2) Histórico derivatives
     deriv_hist = None
     if deriv_enabled:
         deriv_hist = await build_full_derivatives(perp_symbols, deriv_cfg, force_rebuild=force_deriv)
 
-    # (3) Re-merge & recompute features históricas (se derivativos habilitados)
+    # (3) Re-merge & recompute features com derivados históricos
     extended_price_map = {}
     if deriv_hist and deriv_cfg.get("recompute_features", True):
         extended_price_map = recompute_full_price_with_derivatives(
@@ -246,7 +256,7 @@ async def main():
             deriv_cfg
         )
 
-    # (4) Geração opcional de sinais históricos (backtest offline)
+    # (4) Geração de sinais históricos (opcional)
     if hist_signals_flag and extended_price_map:
         reports_cfg = settings.get("reports", {})
         reports_path = Path(reports_cfg.get("path", "data/reports"))
@@ -254,14 +264,12 @@ async def main():
         hist_signals_path = reports_path / "historical_signals.parquet"
         build_historical_signals(extended_price_map, regime_cfg, scoring_cfg, hist_signals_path)
 
-    # (5) Coleta “live” incremental + snapshot
+    # (5) Live incremental
     funding_list = []
     oi_map = {}
     if perp_symbols:
-        # Uso realtime (último funding & pequeno histórico OI)
         funding_list, oi_map = await load_derivatives(perp_symbols, period="1h", limit=72)
 
-    # Kill switch simples se precisava derivados e não retornou nada
     if perp_symbols and deriv_enabled and not funding_list and not force_deriv:
         logging.warning("Kill switch: nenhum funding realtime retornado. Abortando ciclo live.")
         return
@@ -305,26 +313,30 @@ async def main():
         logging.warning("Nenhum snapshot gerado.")
         return
 
-    snap_df = pd.DataFrame(snapshots).sort_values("score", ascending=False)
+    # (6) Construção DataFrame + Ranking
+    snap_df = pd.DataFrame(snapshots)
+    snap_df = apply_ranking(snap_df, use_regime_adjust=True)
 
+    cols_show = [
+        "score_rank",
+        "symbol",
+        "regime",
+        "score",
+        "regime_factor",
+        "score_adj",
+        "score_z",
+        "score_pct",
+        "momentum",
+        "breakout",
+        "contrarian",
+        "penalty",
+        "funding_z",
+        "oi_delta_pct",
+    ]
     print("\n=== SCORE SNAPSHOT @", datetime.now(timezone.utc).isoformat(), "===")
-    print(
-        snap_df[
-            [
-                "symbol",
-                "regime",
-                "score",
-                "momentum",
-                "breakout",
-                "contrarian",
-                "penalty",
-                "funding_z",
-                "oi_delta_pct",
-            ]
-        ].to_string(index=False)
-    )
+    print(snap_df[cols_show].sort_values("score_rank").to_string(index=False))
 
-    # (6) Persistência snapshot acumulado
+    # (7) Persistência snapshot acumulado
     reports_cfg = settings.get("reports", {})
     reports_path = Path(reports_cfg.get("path", "data/reports"))
     snapshot_file = reports_cfg.get("snapshot_file", "snapshots.parquet")
@@ -350,7 +362,7 @@ async def main():
     except Exception as e:
         logging.warning("Falha ao salvar snapshot: %s", e)
 
-    # (7) Alertas Telegram
+    # (8) Alertas Telegram
     tg_cfg = secrets.get("telegram") if secrets else None
     if tg_cfg and tg_cfg.get("bot_token") and tg_cfg.get("chat_id"):
         alerter = TelegramAlerter(
@@ -358,13 +370,15 @@ async def main():
             chat_id=tg_cfg["chat_id"],
             parse_mode="Markdown",
         )
-        top_n = snap_df.head(3)
+        top_n = snap_df.sort_values("score_rank").head(3)
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
         lines = [f"*Top Signals — cry2muchbot* ({ts})"]
         for _, row in top_n.iterrows():
             lines.append(
-                f"`{row.symbol}` score={row.score:.5f} mom={row.momentum:.5f} "
-                f"brk={row.breakout:.3f} ctr={row.contrarian:.3f}"
+                f"#{int(row.score_rank)} `{row.symbol}` "
+                f"adj={row.score_adj:.5f} raw={row.score:.5f} "
+                f"z={row.score_z:.2f} pct={row.score_pct:.2f}"
             )
         msg = "\n".join(lines)
         success = await alerter.send(msg)

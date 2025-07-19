@@ -4,10 +4,14 @@ src/core/__init__.py
 src/core/alerts.py
 src/core/anomaly.py
 src/core/backtest.py
+src/core/backtest_signals.py
 src/core/datasource.py
+src/core/derivatives_history.py
 src/core/exchanges.py
 src/core/execution.py
 src/core/features.py
+src/core/historical.py
+src/core/integrate.py
 src/core/meta_label.py
 src/core/metrics.py
 src/core/monitoring.py
