@@ -1,29 +1,43 @@
-# core/backtest_signals.py
-
 import pandas as pd
+from typing import Dict
 from core.ranking import apply_ranking
 
-def generate_historical_signals(price_map, regime_clf, scorer, min_history=50, apply_cross_sectional_rank=False):
+def generate_historical_signals(price_map: Dict[str, pd.DataFrame],
+                                regime_clf,
+                                scorer,
+                                min_history: int = 50,
+                                apply_cross_sectional_rank: bool = False) -> pd.DataFrame:
     """
-    price_map: dict {symbol: DataFrame com colunas incluindo open_time, close, features ...}
-    Retorna DataFrame com colunas:
-      symbol, open_time, regime, score, momentum, breakout, contrarian, penalty, close
+    Gera sinais históricos para cada símbolo.
+    price_map: dict {symbol: DataFrame com colunas incluindo open_time, close e features usados pelo scorer}
+    min_history: número mínimo de candles antes de calcular score (evita NaNs em janelas longas)
+    apply_cross_sectional_rank: se True, aplica ranking por timestamp (open_time)
+    Retorna DataFrame com:
+       symbol, open_time, regime, score, momentum, breakout, contrarian, penalty, close
+       (e se apply_cross_sectional_rank=True, adiciona colunas do ranking)
     """
     records = []
 
     for symbol, df in price_map.items():
-        if df.empty or "open_time" not in df.columns or "close" not in df.columns:
+        if df is None or df.empty:
+            continue
+        if "open_time" not in df.columns or "close" not in df.columns:
             continue
 
         df = df.sort_values("open_time").reset_index(drop=True)
 
         for i in range(len(df)):
-            # Exigir histórico mínimo para evitar NaNs em médias / std
             if i < min_history:
                 continue
+
+            # janela até i (inclusive) para regime
+            hist_slice = df.iloc[: i + 1]
             row = df.iloc[i].to_dict()
 
-            regime = regime_clf.classify(df.iloc[:i+1])  # passa só histórico até aqui
+            # classificação de regime
+            regime = regime_clf.classify(hist_slice)
+
+            # score components
             sb = scorer.compute(row, regime)
 
             records.append({
@@ -39,15 +53,13 @@ def generate_historical_signals(price_map, regime_clf, scorer, min_history=50, a
             })
 
     sig_df = pd.DataFrame(records)
-
     if sig_df.empty:
         return sig_df
 
-    # (Opcional) aplicar ranking cross-sectional por timestamp (open_time)
     if apply_cross_sectional_rank:
-        ranked = []
+        ranked_parts = []
         for ts, grp in sig_df.groupby("open_time"):
-            ranked.append(apply_ranking(grp, use_regime_adjust=True))
-        sig_df = pd.concat(ranked, ignore_index=True)
+            ranked_parts.append(apply_ranking(grp, use_regime_adjust=True))
+        sig_df = pd.concat(ranked_parts, ignore_index=True)
 
     return sig_df

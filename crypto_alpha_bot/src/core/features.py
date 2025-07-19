@@ -77,3 +77,20 @@ def recompute_derivative_features(df: pd.DataFrame) -> pd.DataFrame:
     if "open_interest_usd" in df.columns:
         df["oi_delta_pct"] = df["open_interest_usd"].pct_change()
     return df
+
+from core.features_ext import add_extended_micro_features
+
+def build_feature_set(df: pd.DataFrame) -> pd.DataFrame:
+    # Exemplo / reconstrução mínima
+    # (Usa as colunas já existentes; adiciona tuas features antigas se houver)
+    base = df.copy()
+
+    # (Se existirem transformações anteriores de momentum/breakout etc.,
+    #  deixa-as aqui antes de adicionar as novas.)
+    # ex:
+    # base["ret_1h"] = base["close"].pct_change()
+    # base["ret_24h"] = base["close"].pct_change(24)
+
+    from core.features_ext import add_extended_micro_features
+    base = add_extended_micro_features(base)
+    return base
