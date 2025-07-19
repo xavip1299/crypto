@@ -30,3 +30,7 @@ storage:
 
 logging:
   level: INFO
+
+telegram:
+  bot_token: "7694317810:AAFeUEksuLnfHs1dMQV9KDdHcNHbdKgEMfg"
+  chat_id: 1064066035
